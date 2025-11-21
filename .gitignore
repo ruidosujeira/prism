@@ -1,0 +1,10 @@
+node_modules
+.pnpm-store
+.DS_Store
+.env*
+dist
+build
+coverage
+storage
+packages/web/.next
+packages/web/out

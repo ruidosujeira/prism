@@ -1,0 +1,29 @@
+{
+  "name": "prism-registry-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/multipart": "8.1.0",
+    "@prism/shared": "workspace:*",
+    "fastify": "4.27.2",
+    "pino": "9.3.2",
+    "semver": "7.6.3",
+    "tar-stream": "3.1.6",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/semver": "7.5.8",
+    "tsup": "8.1.0"
+  }
+}
