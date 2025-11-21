@@ -1,79 +1,104 @@
 # Prism Registry Architecture
 
-Prism is organized as a pnpm-powered monorepo with three primary workspaces: the backend registry core, the shared schema/types package, and the optional web experience. Supporting infrastructure (docker images, operational scripts) lives under `infra/`.
+Prism is a pnpm-powered monorepo that packages every registry concern—schemas, resolver, backend, CLI, storage drivers, and dashboard—under a single toolchain. Shared configs keep TypeScript, Vitest, ESLint, and build tooling aligned across workspaces while `docs/` and `infra/` host operational runbooks and deployment helpers.
 
 ```
 prism/
   packages/
-    backend/   # REST API, ingestion pipeline, analyzers, persistence
-    shared/    # Schemas, type contracts, deterministic validation helpers
-    web/       # Next.js UI (optional during foundation work)
-  infra/
-    docker/    # Future container images, runtime setups
-    scripts/   # Operational scripts for maintenance/indexing
+    shared/      # schemas, types, validation helpers
+    core/        # resolver + storage abstractions
+    backend/     # Fastify API, ingestion pipeline, analyzers
+    cli/         # developer binary for publish/info/resolve
+    storage-s3/  # S3-compatible PrismStorage implementation
+  apps/
+    dashboard/   # React/Vite operator console
+  docs/          # product, API, and operations guides
+  infra/         # deployment + automation tooling
 ```
 
 ## Tooling Decisions
 
-- **Package Manager:** pnpm workspaces with lock-step TypeScript versioning; deterministic installs and hoisting control.
-- **Language:** Node.js + TypeScript across all packages.
-- **Build Tooling:** `tsup` for libraries/services for fast ESM+CJS output, `ts-node`/`tsx` for local dev entry points, Next.js App Router for the web.
-- **Validation:** Zod for schema-first validation within `prism-shared`; avoids custom validation duplication.
-- **Testing (future):** Vitest for unit coverage, supertest for API-level testing (not part of initial bootstrap but planned).
+- **Package manager:** pnpm workspaces for deterministic installs and shared scripts.
+- **Language:** TypeScript everywhere for a single type graph.
+- **Build tooling:** `tsup` (libraries/backends), Vite (dashboard), Fastify + `tsx` for local backend entry points.
+- **Validation:** Zod schemas live in `@prism/shared` so backend, CLI, and dashboard enforce the same contracts.
+- **Testing:** Vitest (node + jsdom) with Fastify inject for API tests and Testing Library for UI components.
 
-## Backend Overview
+## Component Overview
 
-- **Server:** Fastify-powered HTTP server for deterministic routing, JSON schema validation, and performance.
-- **Modules:**
-  - `api/` — route handlers for publish and read endpoints.
-  - `ingest/` — tarball handling, metadata parsing, analyzer orchestration.
-  - `storage/` — deterministic filesystem layout (packages/{name}/{version}).
-  - `analyzers/` — modular analyzers (metadata, file tree, runtime compatibility, size, diff, indexing).
-  - `services/` — orchestrators for persistence, search index maintenance, diff generation.
-  - `types/` — re-export type contracts from `@prism/shared` for convenience.
-- **Data Layout:**
-  - `storage/packages/<normalized-name>/<version>/metadata.json` — canonical metadata.
-  - `storage/packages/<normalized-name>/<version>/tarball.tgz` — original artifact.
-  - `storage/search/index.json` — search index snapshot.
-  - `storage/runtime/flags.json` — runtime compatibility cache.
+| Layer                    | Responsibilities                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `@prism/shared`          | Zod schemas, hash/provenance helpers, normalization utilities.                          |
+| `@prism/core`            | Spec parsing, semver resolution, runtime-specific entry selection, storage abstraction. |
+| `prism-registry-backend` | Fastify server, ingest pipeline, analyzers, persistence orchestration, REST APIs.       |
+| `@prism/cli`             | Publish/info/resolve commands, tarball builder, provenance header injection.            |
+| `@prism/storage-s3`      | Production-ready manifest store backed by S3/MinIO-compatible endpoints.                |
+| `apps/dashboard`         | Vite/React operator UI surfacing packages, versions, analyzer output, provenance.       |
 
-## Shared Package Responsibilities
+## Core Flows
 
-- Zod schemas + TypeScript types for:
-  - Package metadata
-  - Version metadata
-  - File tree nodes
-  - Analyzer outputs (sizes, exports, runtime flags)
-  - Version diff payloads
-  - Publish payload validation
-- Shared utilities:
-  - Name/version normalization
-  - Hash helpers (sha256 wrappers)
-  - Tarball helper interfaces
+### Publish Flow
 
-## Publish Flow (High-Level)
+1. **Authenticate publisher** via CLI headers (placeholder) or future JWT/OIDC middleware hooks.
+2. **POST `/v1/packages/:name`** streams the tarball and metadata validated against `PublishPayload`.
+3. **Ingest pipeline** stages artifacts, verifies SHA-256 digests, and rehydrates `package.json` for deterministic metadata.
+4. **Analyzers** run sequentially: exports/types detection, runtime compatibility, file tree + sizes, provenance scoring, diff against previous version.
+5. **Persistence** writes canonical metadata and Prism manifest through the configured `PrismStorage` driver (memory/filesystem/S3) and saves the raw tarball on disk.
+6. **Indexing** updates search/runtime caches so CLI + dashboard queries stay warm.
+7. **Response** returns stored manifest, analyzer summaries, provenance digests, and public artifact URLs.
 
-1. **POST /publish** receives multipart or JSON-encoded tarball reference.
-2. **Ingest** writes tarball to temp dir, validates sha256, extracts package manifest.
-3. **Analyzers** execute sequentially:
-   - manifest metadata extraction
-   - dependency graph + maturity metrics
-   - file tree + size calculation (raw + gzip)
-   - runtime compatibility classification
-   - exports/types detection
-4. **Persistence** writes canonical metadata + tarball to storage layout, updates search index + runtime cache.
-5. **Response** returns stored version metadata referencing canonical storage path and analyzer outcomes.
+### Resolve / Install Flow
 
-## API Surface (Initial)
+1. Client (CLI, automation, dashboard) calls `GET /v1/resolve?spec=<name>@<range>&runtime=<node|deno|bun>`.
+2. Resolver in `@prism/core` parses range operators, fetches manifests via `PrismStorage`, and picks the highest version satisfying the range.
+3. Runtime-specific exports (`node`, `deno`, `bun`, `.`, `default`) determine the entry path and format; fallbacks scan canonical file lists when exports are absent.
+4. URLs are emitted relative to `/packages/<name>/<version>/...` or rewritten with `PRISM_PUBLIC_BASE_URL` so callers can hit CDN/object-storage edges directly.
 
-- `POST /publish` — ingest new package version.
-- `GET /package/:name` — latest metadata + versions.
-- `GET /package/:name/:version` — version metadata payload.
-- `GET /package/:name/:version/files` — file tree w/ size metrics.
-- `GET /package/:name/:version/diff/:previous` — deterministic diff data.
+### Authentication & Authorization Flow
 
-## Next Steps
+- **Current state:** CLI embeds `PRISM_PUBLISHER_NAME/EMAIL` headers. Backend uses a lightweight allowlist middleware for trusted publishers.
+- **Planned:** pluggable module supporting OIDC tokens, service accounts for CI, scoped API keys, and signed download URLs for private assets (see `docs/roadmap.md`).
 
-- Scaffold pnpm workspace + base configs.
-- Build shared schemas, then backend scaffolding.
-- Add optional Next.js skeleton once core registry foundation is in place.
+## Data & Storage Decisions
+
+- **Manifests** live behind the `PrismStorage` interface. Filesystem driver is default for local dev/tests, while `@prism/storage-s3` unlocks production durability (S3/MinIO/R2).
+- **Tarballs** remain on disk under `STORAGE_ROOT` to keep ingestion predictable and allow checksum replays.
+- **Indexes** (search, runtime cache) are JSON snapshots today; roadmap includes Elastic/OpenSearch or SQLite for richer querying.
+- **Database compatibility:** No relational DB is required yet; JSON artifacts stay diff-friendly and GitOps friendly.
+
+## Observability & Operations
+
+- Fastify structured logs with request IDs around ingest + analyzer stages.
+- Analyzer telemetry (duration, verdicts) streamed to the dashboard.
+- Hooks prepared for OpenTelemetry exporters, log sinks (CloudWatch/Loki), and audit webhooks—documented in `docs/observability` (upcoming).
+- Dashboard exposes provenance tags, runtime flags, and diff metadata so operators can triage without tailing logs.
+
+## Scaling Model
+
+- **Stateless API nodes** behind a load balancer; storage driver is the only shared dependency.
+- **Caching:** Resolver keeps a per-node LRU cache; design allows Redis/KeyDB plug-ins when hot package churn increases.
+- **CDN support:** `baseUrl` option rewrites resolved URLs so artifacts can be replicated to edge buckets/CDNs while metadata continues to live on the backend.
+- **Sharding:** S3 paths are namespaced per package/version, enabling bucket/per-prefix sharding at scale.
+
+## Compatibility Notes
+
+- Prism is not a drop-in npm registry. The CLI speaks Prism-native REST endpoints to access richer runtime/provenance data.
+- A metadata adapter that outputs npm-style responses is planned but intentionally decoupled to keep manifests runtime-aware.
+- Backwards compatibility is enforced via `@prism/shared` schema versioning; new analyzer fields are additive and flagged via semver.
+
+## API Surface
+
+- `POST /v1/packages/:name` — publish a package version.
+- `GET /v1/packages` — list packages with latest tags.
+- `GET /v1/packages/:name` — package summary + versions array.
+- `GET /v1/packages/:name/:version` — version metadata and Prism manifest.
+- `GET /v1/packages/:name/:version/files` — snapshot of the extracted file tree with size information.
+- `GET /v1/packages/:name/:version/diff/:previous` — analyzer-produced diff artifacts.
+- `GET /v1/resolve` — runtime-aware resolver endpoint returning entry URLs, types URLs, and provenance metadata.
+
+## References
+
+- [docs/development.md](./docs/development.md) — local workflows and scripts.
+- [docs/registry-model.md](./docs/registry-model.md) — canonical metadata schema.
+- [docs/provenance.md](./docs/provenance.md) — analyzer + provenance model.
+- [docs/roadmap.md](./docs/roadmap.md) — sequencing for auth, observability, and scaling milestones.

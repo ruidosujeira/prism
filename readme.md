@@ -1,8 +1,41 @@
 # Prism Platform
 
-Prism is an opinionated JavaScript runtime registry that treats package metadata as a first-class product. It ingests tarballs, performs deterministic analysis, persists runtime-aware manifests, and serves low-latency resolution APIs, a CLI, and a dashboard for operators.
+Prism is a production-grade JavaScript runtime registry for teams that outgrew npm Enterprise mirrors and ad-hoc Verdaccio servers. It ingests tarballs, performs deterministic analysis, persists runtime-aware manifests, and serves low-latency resolution APIs, a CLI, and a dashboard for operators.
 
-## What is Prism
+## Why Another Registry?
+
+- **npm-style mirrors leak control.** Stock npm proxies replicate metadata as-is, so security, provenance, and runtime-specific exports remain opaque.
+- **Verdaccio still feels single-tenant.** It is great for hobby mirrors, but observability, multi-runtime exports, and provenance reporting require invasive plugins.
+- **Platform teams need opinionated workflows.** Internal registries must prove who published what, how it was analyzed, and which runtime entry points are safe to consume.
+
+## Who Is Prism For?
+
+- **Platform/SRE teams** that want a self-hosted registry with provenance, analyzer hooks, and deterministic manifesting.
+- **Regulated companies** that need reproducible audit trails, strict metadata validation, and storage isolation (filesystem or S3/MinIO).
+- **Hobby or OSS maintainers** experimenting with runtime-aware delivery who still want a batteries-included CLI + dashboard.
+
+## Quickstart
+
+```bash
+pnpm install
+pnpm dev             # spins up backend + dashboard locally
+
+# In another terminal
+open http://localhost:4000/docs   # Fastify API explorer
+open http://localhost:4173        # Dashboard once Vite boots
+```
+
+What to expect:
+
+- Backend listening on `http://localhost:4000` with `/v1` APIs.
+- Dashboard proxying against the backend via `VITE_PRISM_API_URL`.
+- File artifacts written to `./storage` (configurable via `STORAGE_ROOT`).
+
+See `docs/development.md` for deeper workflows and `pnpm dev:*` scripts.
+
+## Architecture At a Glance
+
+The components below are expanded in [ARCHITECTURE.md](./ARCHITECTURE.md), including publish/install/auth flows and decision records.
 
 Prism is a modern registry stack composed of:
 
@@ -30,6 +63,18 @@ Prism is a modern registry stack composed of:
 - Storage drivers: in-memory (default), filesystem (local dev), and S3 (production).
 - React dashboard with package list, detail, and version deep dives plus live runtime resolutions.
 - Enterprise documentation set (`docs/`) plus CHANGELOG tracking semantic releases.
+
+## Production Readiness Snapshot
+
+| Capability                         | What Exists Today                                                                                  | Roadmap Notes                                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Authentication & Authorization** | Backend ships with middleware hooks and mock publisher identity via CLI headers.                   | Pluggable OIDC/JWT auth, per-team tokens, and publish policies tracked in `docs/roadmap.md`.        |
+| **Artifact Storage**               | Filesystem storage plus optional `@prism/storage-s3` driver (S3/MinIO).                            | Multi-region replication + pluggable blob stores (GCS, Azure) in planning.                          |
+| **Provenance & Auditing**          | Deterministic manifests, analyzer tags, SHA-256 digests, diff metadata.                            | Sigstore/Rekor attestations + policy evaluation incoming.                                           |
+| **Observability**                  | Fastify logging, structured ingest logs, dashboard surfacing analyzer output.                      | OpenTelemetry exporters, audit event bus, and alert hooks queued.                                   |
+| **Scaling & Distribution**         | Stateless Fastify backend, resolver backed by Prisma storage abstractions, CDN/base URL overrides. | Horizontal sharding, Redis cache for hot manifests, and resolver CDN edges (see `docs/roadmap.md`). |
+
+This table should evolve alongside implementation to keep the "production-grade" promise grounded.
 
 ## High-level Architecture
 
