@@ -8,3 +8,4 @@ coverage
 storage
 packages/web/.next
 packages/web/out
+**/tsconfig.tsbuildinfo

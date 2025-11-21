@@ -26,8 +26,7 @@ export const PackageSearchRequestSchema = z.object({
   query: z.string().default(''),
   filters: z
     .object({
-      runtime: z.array(z.enum(['node', 'bun', 'deno', 'workers'])).optional(),
-      runtime: z.array(z.keyof(RuntimeCompatibilitySchema.shape)).optional(),
+      runtime: z.array(RuntimeCompatibilitySchema.keyof()).optional(),
       package: PackageNameSchema.optional(),
     })
     .default({}),

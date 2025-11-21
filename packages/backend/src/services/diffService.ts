@@ -1,4 +1,4 @@
-import { FileTreeNode, VersionDiffSchema } from '@prism/shared'
+import { FileTreeNode, VersionDiffSchema, ExportEntry } from '@prism/shared'
 import { packageRepository } from '../repositories/packageRepository'
 
 const normalizeMap = (record: Record<string, string> = {}) => record || {}
@@ -76,17 +76,17 @@ class DiffService {
     }, [])
 
     const exportNamesBefore = new Set(
-      from.exports.entries.map((entry) => entry.name),
+      from.exports.entries.map((entry: ExportEntry) => entry.name),
     )
     const exportNamesAfter = new Set(
-      to.exports.entries.map((entry) => entry.name),
+      to.exports.entries.map((entry: ExportEntry) => entry.name),
     )
 
     const exportAdded = to.exports.entries.filter(
-      (entry) => !exportNamesBefore.has(entry.name),
+      (entry: ExportEntry) => !exportNamesBefore.has(entry.name),
     )
     const exportRemoved = from.exports.entries.filter(
-      (entry) => !exportNamesAfter.has(entry.name),
+      (entry: ExportEntry) => !exportNamesAfter.has(entry.name),
     )
 
     return VersionDiffSchema.parse({

@@ -15,7 +15,7 @@ const FileNodeBaseSchema = z.object({
 const FileLeafSchema = FileNodeBaseSchema.extend({
   type: z.literal('file'),
   extension: z.string(),
-  executable: z.boolean().default(false),
+  executable: z.boolean(),
 })
 
 export type FileLeafNode = z.infer<typeof FileLeafSchema>

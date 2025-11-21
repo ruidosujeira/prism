@@ -12,6 +12,7 @@
     "declaration": true,
     "sourceMap": true,
     "types": ["node"],
+    "baseUrl": ".",
     "paths": {
       "@prism/shared": ["packages/shared/src/index.ts"],
       "@prism/shared/*": ["packages/shared/src/*"]
