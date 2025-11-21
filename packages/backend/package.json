@@ -11,10 +11,13 @@
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fastify/multipart": "8.1.0",
+    "@prism/core": "workspace:*",
+    "@prism/storage-s3": "workspace:*",
     "@prism/shared": "workspace:*",
     "fastify": "4.29.1",
     "pino": "9.3.2",
@@ -25,6 +28,7 @@
   "devDependencies": {
     "@types/semver": "7.5.8",
     "@types/tar-stream": "^3.1.4",
-    "tsup": "8.1.0"
+    "tsup": "8.1.0",
+    "vitest": "^1.6.0"
   }
 }

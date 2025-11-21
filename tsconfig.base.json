@@ -15,7 +15,11 @@
     "baseUrl": ".",
     "paths": {
       "@prism/shared": ["packages/shared/src/index.ts"],
-      "@prism/shared/*": ["packages/shared/src/*"]
+      "@prism/shared/*": ["packages/shared/src/*"],
+      "@prism/core": ["packages/core/src/index.ts"],
+      "@prism/core/*": ["packages/core/src/*"],
+      "@prism/storage-s3": ["packages/storage-s3/src/index.ts"],
+      "@prism/storage-s3/*": ["packages/storage-s3/src/*"]
     }
   }
 }

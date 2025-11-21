@@ -5,8 +5,12 @@ import {
   PublishResponseSchema,
   VersionMetadataSchema,
   sha256,
+  sha512,
   toHashDigest,
+  toPosixPath,
+  normalizePackageName,
 } from '@prism/shared'
+import type { PrismManifest } from '@prism/core'
 import {
   analyzeExports,
   analyzeFileTree,
@@ -15,9 +19,11 @@ import {
   summarizeManifest,
 } from '../analyzers'
 import { inspectTarball } from './tarballInspector'
+import type { TarballFileEntry } from './tarballInspector'
 import { packageRepository } from '../repositories/packageRepository'
 import { searchIndexService } from '../services/searchIndexService'
 import { tarballPath, storagePaths } from '../storage/storageLayout'
+import { getPrismStorage } from '../storage/storageFactory'
 import { isValidUrl } from '../utils/url'
 
 const parseBugsField = (bugs: unknown) => {
@@ -62,7 +68,89 @@ const normalizeRepository = (repository: PackageManifest['repository']) => {
   return repository
 }
 
-export const runPublishPipeline = async (payload: PublishPayload) => {
+const normalizeExportPath = (value: string) =>
+  toPosixPath(value)
+    .replace(/^((\.\/)+)/, '')
+    .replace(/^package\//, '')
+
+const buildExportsRecord = (
+  manifest: PackageManifest,
+): Record<string, string> | undefined => {
+  const record: Record<string, string> = {}
+  const register = (key: string, target?: unknown) => {
+    if (typeof target !== 'string' || record[key]) {
+      return
+    }
+    const normalized = normalizeExportPath(target)
+    if (normalized.length > 0) {
+      record[key] = normalized
+    }
+  }
+
+  const exportsField = manifest.exports
+  if (!exportsField) {
+    return undefined
+  }
+
+  if (typeof exportsField === 'string') {
+    register('.', exportsField)
+  } else if (typeof exportsField === 'object') {
+    for (const [key, value] of Object.entries(
+      exportsField as Record<string, unknown>,
+    )) {
+      if (typeof value === 'string') {
+        register(key, value)
+        continue
+      }
+      if (value && typeof value === 'object') {
+        const entry = value as Record<string, unknown>
+        register(key, entry.default ?? entry.import)
+        for (const [conditional, conditionalValue] of Object.entries(entry)) {
+          register(conditional, conditionalValue)
+        }
+      }
+    }
+  }
+
+  return Object.keys(record).length ? record : undefined
+}
+
+const buildPrismManifest = (
+  manifestSummary: ReturnType<typeof summarizeManifest>,
+  files: TarballFileEntry[],
+  runtime: ReturnType<typeof analyzeRuntime>,
+  tarballBuffer: Buffer,
+): PrismManifest => {
+  const fileList = files.map((entry) => entry.path)
+  return {
+    name: manifestSummary.identifier.name,
+    version: manifestSummary.identifier.version,
+    files: fileList,
+    integrity: `sha512-${sha512(tarballBuffer)}`,
+    types: manifestSummary.manifest.types ?? manifestSummary.manifest.typings,
+    exports: buildExportsRecord(manifestSummary.manifest),
+    runtimes: {
+      node: runtime.compatibility.node,
+      bun: runtime.compatibility.bun,
+      deno: runtime.compatibility.deno,
+    },
+    metadata: {
+      description: manifestSummary.manifest.description,
+      keywords: manifestSummary.manifest.keywords ?? [],
+      license: manifestSummary.manifest.license,
+      repository: normalizeRepository(manifestSummary.manifest.repository),
+    },
+  }
+}
+
+interface PublishPipelineOptions {
+  expectedName?: string
+}
+
+export const runPublishPipeline = async (
+  payload: PublishPayload,
+  options?: PublishPipelineOptions,
+) => {
   const tarballBuffer = Buffer.from(payload.tarballBase64, 'base64')
   const digest = sha256(tarballBuffer)
   if (digest !== payload.sha256.toLowerCase()) {
@@ -71,6 +159,16 @@ export const runPublishPipeline = async (payload: PublishPayload) => {
 
   const inspection = await inspectTarball(tarballBuffer)
   const manifestSummary = summarizeManifest(inspection.manifest)
+
+  if (options?.expectedName) {
+    const expected = normalizePackageName(options.expectedName)
+    const actual = normalizePackageName(manifestSummary.identifier.name)
+    if (expected !== actual) {
+      throw new Error(
+        `Package name mismatch. Received "${options.expectedName}" but tarball declares "${manifestSummary.identifier.name}"`,
+      )
+    }
+  }
   const runtime = analyzeRuntime(manifestSummary.manifest)
   const exportsMap = analyzeExports(manifestSummary.manifest)
   const fileTree = analyzeFileTree(inspection.files, inspection.generatedAt)
@@ -79,6 +177,12 @@ export const runPublishPipeline = async (payload: PublishPayload) => {
     manifestSummary.manifest,
     runtime.tags,
     distribution.rawBytes,
+  )
+  const prismManifest = buildPrismManifest(
+    manifestSummary,
+    inspection.files,
+    runtime,
+    tarballBuffer,
   )
 
   const identifier = manifestSummary.identifier
@@ -123,6 +227,7 @@ export const runPublishPipeline = async (payload: PublishPayload) => {
   })
 
   await packageRepository.saveVersion(metadata, tarballBuffer)
+  await getPrismStorage().putManifest(prismManifest)
   await searchIndexService.upsert(metadata)
 
   return PublishResponseSchema.parse({

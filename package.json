@@ -4,16 +4,19 @@
   "version": "0.1.0",
   "packageManager": "pnpm@9.12.0",
   "scripts": {
-    "build": "pnpm -r run build",
-    "dev": "pnpm -r --parallel --filter prism-registry-backend --filter prism-registry-web run dev",
+    "build": "pnpm --filter @prism/shared build && pnpm --filter @prism/core build && pnpm --filter @prism/storage-s3 build && pnpm --filter prism-registry-backend build && pnpm --filter prism-registry-web build && pnpm --filter prism-dashboard build && pnpm --filter @prism/cli build",
+    "dev": "pnpm -r --parallel --filter prism-registry-backend --filter prism-registry-web --filter prism-dashboard run dev",
     "dev:backend": "pnpm --filter prism-registry-backend dev",
     "dev:web": "pnpm --filter prism-registry-web dev",
+    "dev:dashboard": "pnpm --filter prism-dashboard dev",
     "lint": "pnpm -r run lint",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r test"
   },
   "devDependencies": {
     "@types/node": "22.7.4",
     "tsx": "4.15.7",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "^1.6.0"
   }
 }

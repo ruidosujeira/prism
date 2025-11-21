@@ -1,0 +1,37 @@
+{
+  "name": "@prism/cli",
+  "version": "0.2.0",
+  "type": "module",
+  "private": false,
+  "bin": {
+    "prism": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@prism/core": "workspace:*",
+    "@prism/shared": "workspace:*",
+    "commander": "12.1.0",
+    "tar": "6.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.7.4",
+    "tsup": "8.1.0",
+    "tsx": "4.15.7",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

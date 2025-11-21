@@ -17,12 +17,14 @@
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "zod": "3.23.8"
   },
   "devDependencies": {
-    "tsup": "8.1.0"
+    "tsup": "8.1.0",
+    "vitest": "^1.6.0"
   }
 }

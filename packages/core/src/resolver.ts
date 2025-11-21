@@ -6,7 +6,12 @@ import {
 } from './errors'
 import type { PrismManifest, PrismRuntime } from './manifest'
 import type { PrismStorage } from './storage'
-import type { PrismSpec, ResolvedEntry } from './types'
+import type {
+  PrismRuntimeConfig,
+  PrismSpec,
+  ResolvedEntry,
+  RuntimeResolution,
+} from './types'
 
 export interface ResolveContext {
   runtime: PrismRuntime
@@ -29,6 +34,7 @@ export async function resolveSpec(
     name: parsedSpec.name,
     range: parsedSpec.range,
     runtime: ctx.runtime,
+    baseUrl: ctx.baseUrl,
   }
 
   const availableVersions = await storage.listVersions(prismSpec.name)
@@ -49,26 +55,28 @@ export async function resolveSpec(
     throw new VersionNotFoundError(prismSpec.name, selectedVersion)
   }
 
-  const entryPath = resolveEntryPath(manifest)
+  const { entryPath, format } = resolveRuntimeEntry(manifest, prismSpec.runtime)
   const normalizedEntry = normalizePath(entryPath)
   const url = buildUrl(
     prismSpec.name,
     manifest.version,
     normalizedEntry,
-    ctx.baseUrl,
+    prismSpec.baseUrl,
   )
   const typesUrl = manifest.types
     ? buildUrl(
         prismSpec.name,
         manifest.version,
         normalizePath(manifest.types),
-        ctx.baseUrl,
+        prismSpec.baseUrl,
       )
     : undefined
 
   return {
     url,
-    format: detectFormat(normalizedEntry),
+    entryPath: normalizedEntry,
+    runtime: prismSpec.runtime,
+    format,
     typesUrl,
     manifest,
   }
@@ -156,32 +164,83 @@ function satisfiesRange(version: string, descriptor: RangeDescriptor): boolean {
   }
 }
 
-function resolveEntryPath(manifest: PrismManifest): string {
-  const exportRoot = manifest.exports?.['.']
-  if (typeof exportRoot === 'string' && exportRoot.length > 0) {
-    return exportRoot
+const RUNTIME_CONFIG: Record<PrismRuntime, PrismRuntimeConfig> = {
+  node: {
+    runtime: 'node',
+    defaultEntries: [
+      'index.js',
+      'index.mjs',
+      'index.ts',
+      'main.js',
+      'main.mjs',
+    ],
+  },
+  deno: {
+    runtime: 'deno',
+    defaultEntries: ['mod.ts', 'main.ts', 'index.ts', 'mod.mjs'],
+  },
+  bun: {
+    runtime: 'bun',
+    defaultEntries: ['index.ts', 'index.js', 'bun.ts', 'bun.js'],
+  },
+}
+
+export function resolveRuntimeEntry(
+  manifest: PrismManifest,
+  runtime: PrismRuntime,
+): RuntimeResolution {
+  const normalizedExports = normalizeExportsRecord(manifest.exports)
+  const preferredKeys = [runtime, '.', 'default']
+
+  for (const key of preferredKeys) {
+    const candidate = normalizedExports[key]
+    if (candidate) {
+      return {
+        entryPath: candidate,
+        format: detectFormat(candidate),
+      }
+    }
   }
 
-  const normalized = new Set(manifest.files.map(normalizePath))
-  const fallbacks = ['mod.ts', 'index.ts', 'index.js']
-  for (const candidate of fallbacks) {
-    if (normalized.has(candidate)) {
-      return candidate
+  const fileSet = new Set(manifest.files.map((file) => normalizePath(file)))
+  for (const fallback of RUNTIME_CONFIG[runtime].defaultEntries) {
+    if (fileSet.has(fallback)) {
+      return {
+        entryPath: fallback,
+        format: detectFormat(fallback),
+      }
     }
   }
 
   throw new EntryPointResolutionError(manifest.name, manifest.version)
 }
 
+function normalizeExportsRecord(
+  record?: Record<string, string>,
+): Record<string, string> {
+  if (!record) {
+    return {}
+  }
+  return Object.entries(record).reduce<Record<string, string>>(
+    (acc, [key, value]) => {
+      if (typeof value === 'string' && value.length > 0) {
+        acc[key] = normalizePath(value)
+      }
+      return acc
+    },
+    {},
+  )
+}
+
 function detectFormat(path: string) {
   const lower = path.toLowerCase()
   if (lower.endsWith('.mjs') || lower.endsWith('.ts')) {
-    return 'esm' as const
+    return 'esm'
   }
   if (lower.endsWith('.cjs') || lower.endsWith('.js')) {
-    return 'cjs' as const
+    return 'cjs'
   }
-  return 'bundle' as const
+  return 'bundle'
 }
 
 function normalizePath(path: string): string {

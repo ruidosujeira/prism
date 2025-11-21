@@ -11,6 +11,7 @@ import {
   metadataPath,
   resolvePackageDir,
   resolveVersionDir,
+  storagePaths,
   tarballPath,
 } from '../storage/storageLayout'
 import { sortVersionsAsc } from '../utils/semver'
@@ -58,6 +59,30 @@ export class PackageRepository {
       tags: latestMetadata.tags,
     }
     return PackageIndexEntrySchema.parse(index)
+  }
+
+  async listPackages(): Promise<PackageIndexEntry[]> {
+    try {
+      const entries = await fs.readdir(storagePaths.packagesRoot, {
+        withFileTypes: true,
+      })
+      const summaries: PackageIndexEntry[] = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) {
+          continue
+        }
+        const summary = await this.getPackageIndex(entry.name)
+        if (summary) {
+          summaries.push(summary)
+        }
+      }
+      return summaries.sort((a, b) => a.name.localeCompare(b.name))
+    } catch (error) {
+      if ((error as NodeError).code === 'ENOENT') {
+        return []
+      }
+      throw error
+    }
   }
 }
 

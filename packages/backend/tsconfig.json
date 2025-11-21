@@ -3,6 +3,6 @@
   "compilerOptions": {
     "rootDir": "../.."
   },
-  "include": ["src", "../shared/src/**/*.ts"],
+  "include": ["src", "../shared/src/**/*.ts", "../core/src/**/*.ts"],
   "exclude": ["dist", "node_modules", "storage"]
 }
