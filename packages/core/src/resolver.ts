@@ -12,6 +12,7 @@ import type {
   ResolvedEntry,
   RuntimeResolution,
 } from './types'
+import { normalizeExportsRecord } from '@prism/shared'
 
 export interface ResolveContext {
   runtime: PrismRuntime
@@ -215,22 +216,7 @@ export function resolveRuntimeEntry(
   throw new EntryPointResolutionError(manifest.name, manifest.version)
 }
 
-function normalizeExportsRecord(
-  record?: Record<string, string>,
-): Record<string, string> {
-  if (!record) {
-    return {}
-  }
-  return Object.entries(record).reduce<Record<string, string>>(
-    (acc, [key, value]) => {
-      if (typeof value === 'string' && value.length > 0) {
-        acc[key] = normalizePath(value)
-      }
-      return acc
-    },
-    {},
-  )
-}
+// normalized via @prism/shared
 
 function detectFormat(path: string) {
   const lower = path.toLowerCase()

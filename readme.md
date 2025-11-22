@@ -1,80 +1,182 @@
-# Prism Platform
+- @prism/web
+  - Minimal UI: browse, versions, exports map, file tree.
+- Storage drivers
+  - In-memory, filesystem, S3 (stub/driver).
 
-Prism is a production-grade JavaScript runtime registry for teams that outgrew npm Enterprise mirrors and ad-hoc Verdaccio servers. It ingests tarballs, performs deterministic analysis, persists runtime-aware manifests, and serves low-latency resolution APIs, a CLI, and a dashboard for operators.
-
-## Why Another Registry?
-
-- **npm-style mirrors leak control.** Stock npm proxies replicate metadata as-is, so security, provenance, and runtime-specific exports remain opaque.
-- **Verdaccio still feels single-tenant.** It is great for hobby mirrors, but observability, multi-runtime exports, and provenance reporting require invasive plugins.
-- **Platform teams need opinionated workflows.** Internal registries must prove who published what, how it was analyzed, and which runtime entry points are safe to consume.
-
-## Who Is Prism For?
-
-- **Platform/SRE teams** that want a self-hosted registry with provenance, analyzer hooks, and deterministic manifesting.
-- **Regulated companies** that need reproducible audit trails, strict metadata validation, and storage isolation (filesystem or S3/MinIO).
-- **Hobby or OSS maintainers** experimenting with runtime-aware delivery who still want a batteries-included CLI + dashboard.
-
-## Quickstart
-
-```bash
-pnpm install
-pnpm dev             # spins up backend + dashboard locally
-
-# In another terminal
-open http://localhost:4000/docs   # Fastify API explorer
-open http://localhost:4173        # Dashboard once Vite boots
+Interaction
+```
+CLI/HTTP → @prism/backend → @prism/core → storage driver
+                              ↑
+                        @prism/shared
 ```
 
-What to expect:
+See ARCHITECTURE.md for deeper flows and constraints.
 
-- Backend listening on `http://localhost:4000` with `/v1` APIs.
-- Dashboard proxying against the backend via `VITE_PRISM_API_URL`.
-- File artifacts written to `./storage` (configurable via `STORAGE_ROOT`).
+References
+- Architecture map: docs/architecture-map.txt
+- Dependency graph: docs/dependency-graph.md
+- Roadmap: docs/roadmap.md
 
-See `docs/development.md` for deeper workflows and `pnpm dev:*` scripts.
+---
 
-## Architecture At a Glance
+## API Overview
 
-The components below are expanded in [ARCHITECTURE.md](./ARCHITECTURE.md), including publish/install/auth flows and decision records.
+Base URL: http://localhost:4000/v1
 
-Prism is a modern registry stack composed of:
+Publish
+```
+POST /v1/packages/:name
+Headers: x-publisher-id: dev-local
+Body (multipart): tarball, version, runtime?, metadata?
 
-- **@prism/shared** – canonical Zod schemas, hashing utilities, and normalization helpers.
-- **@prism/core** – manifest model, resolver, and pluggable storage abstraction.
-- **@prism/cli** – the developer-facing `prism` binary used to publish, inspect, and resolve packages.
-- **prism-registry-backend** – Fastify service that accepts publish requests, stores artifacts, exposes REST APIs, and powers the resolver.
-- **prism-registry-web** – the existing Next.js explorer.
-- **prism-dashboard** – a Vite/React operational console.
-- **@prism/storage-s3** – production-grade manifest storage backed by Amazon S3 (or any S3-compatible endpoint).
+Response 201
+{
+  "name": "@acme/pkg",
+  "version": "1.0.0",
+  "manifestId": "sha256-…"
+}
+```
 
-## Why Prism
+Metadata
+```
+GET /v1/packages/:name
+→ package meta, latest, dist-tags, manifests summary
+```
 
-- **Deterministic ingestion** – every tarball is hashed, re-parsed, and normalized before it is accepted.
-- **Runtime awareness** – manifests record exports per runtime so Bun/Deno/Node consumers receive the right entry.
-- **Transparent provenance** – metadata captures release cadence, integrity, diff snapshots, and analyzer tags.
-- **Composable storage** – manifests can live in-memory for development, on the filesystem, or inside S3 without code changes.
-- **Operator ergonomics** – CLI flows, API ergonomics, and dashboard widgets are written for senior platform teams.
+Versions
+```
+GET /v1/packages/:name/versions
+→ ["1.0.0", "1.1.0"]
+```
 
-## Features
+Resolve
+```
+GET /v1/resolve/:name?range=^1&runtime=node
+→ {
+  "name": "@acme/pkg",
+  "version": "1.1.0",
+  "exports": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
+  "tarball": "https://…/tarballs/@acme/pkg-1.1.0.tgz"
+}
+```
 
-- Publish pipeline with analyzers (exports, runtime compatibility, file trees, diffing, provenance scoring).
-- Runtime resolver that understands `node`, `deno`, and `bun`, including types URLs and base URL overrides.
-- Search index scaffolding for future relevancy ranking.
-- Storage drivers: in-memory (default), filesystem (local dev), and S3 (production).
-- React dashboard with package list, detail, and version deep dives plus live runtime resolutions.
-- Enterprise documentation set (`docs/`) plus CHANGELOG tracking semantic releases.
+Tarball
+```
+GET /v1/tarballs/:name-:version.tgz
+→ streams the artifact
+```
 
-## Production Readiness Snapshot
+---
 
-| Capability                         | What Exists Today                                                                                  | Roadmap Notes                                                                                       |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| **Authentication & Authorization** | Backend ships with middleware hooks and mock publisher identity via CLI headers.                   | Pluggable OIDC/JWT auth, per-team tokens, and publish policies tracked in `docs/roadmap.md`.        |
-| **Artifact Storage**               | Filesystem storage plus optional `@prism/storage-s3` driver (S3/MinIO).                            | Multi-region replication + pluggable blob stores (GCS, Azure) in planning.                          |
-| **Provenance & Auditing**          | Deterministic manifests, analyzer tags, SHA-256 digests, diff metadata.                            | Sigstore/Rekor attestations + policy evaluation incoming.                                           |
-| **Observability**                  | Fastify logging, structured ingest logs, dashboard surfacing analyzer output.                      | OpenTelemetry exporters, audit event bus, and alert hooks queued.                                   |
-| **Scaling & Distribution**         | Stateless Fastify backend, resolver backed by Prisma storage abstractions, CDN/base URL overrides. | Horizontal sharding, Redis cache for hot manifests, and resolver CDN edges (see `docs/roadmap.md`). |
+## CLI
 
-This table should evolve alongside implementation to keep the "production-grade" promise grounded.
+Local publish
+```bash
+prism publish ./dist/pkg-1.0.0.tgz --name @acme/pkg --version 1.0.0
+```
+
+Local resolve
+```bash
+prism resolve @acme/pkg --range ^1 --runtime node
+```
+
+Debug flags
+```bash
+prism publish … --verbose --dry-run
+prism resolve … --json
+```
+
+---
+
+## Storage Drivers
+
+StorageDriver (contract)
+```ts
+interface StorageDriver {
+  putManifest(name: string, version: string, manifest: object): Promise<void>
+  getManifest(name: string, version: string): Promise<object | null>
+  putTarball(name: string, version: string, data: Uint8Array): Promise<void>
+  getTarball(name: string, version: string): Promise<ReadableStream | null>
+}
+```
+
+Philosophy
+- Strict contract tests.
+- Deterministic behavior across drivers.
+- No hidden side effects.
+
+Drivers
+- memory: default for dev and tests.
+- filesystem: local persistence under STORAGE_ROOT.
+- s3: production path, S3/MinIO compatible.
+
+---
+
+## Web UI
+
+Features
+- File tree viewer
+- Exports map
+- Runtimes (Node/Bun/Deno)
+- Version diffs
+- Metadata panel
+
+Screenshots
+- docs/assets/ui-package.png (placeholder)
+- docs/assets/ui-version.png (placeholder)
+
+---
+
+## Testing
+
+- Unit tests: schema, resolver, analyzers.
+- Contract tests: StorageDriver across memory/fs/s3.
+- E2E: publish → list → resolve → tarball.
+
+Run
+```bash
+pnpm -w test
+```
+
+---
+
+## Contributing
+
+- Use pnpm. Keep commits small and scoped.
+- TypeScript, ESM only.
+- Add/extend contract tests when touching storage or resolver.
+- Update README and ARCHITECTURE.md when changing flows.
+
+PR checklist
+- [ ] Tests added/updated
+- [ ] Types tight, no any
+- [ ] Docs updated (README/ARCHITECTURE/CHANGELOG)
+- [ ] No dead code, no TODOs
+
+Local dev
+```bash
+pnpm install
+pnpm dev
+open http://localhost:4000/docs
+```
+
+---
+
+## Roadmap
+
+- Auth: OIDC/JWT, per-team tokens
+- Provenance: Sigstore/Rekor, policy eval
+- Resolver: CDN edge cache, Redis hot manifests
+- Storage: multi-region, GCS/Azure drivers
+- Search: index + ranking
+- UI: diffs, provenance timeline
+
+---
+
+## License
+
+MIT © Prism contributors
+- Roadmap: docs/roadmap.md
 
 ## High-level Architecture
 
@@ -214,3 +316,48 @@ Key environment variables:
 ## License
 
 MIT © Prism authors
+
+
+---
+
+## NPM Compatibility
+
+Prism ships an opt-in, isolated npm-compat router that serves a minimal subset of the npm registry protocol. This allows common tooling (npm, pnpm, Yarn, Bun) to fetch metadata and tarballs from Prism.
+
+Supported endpoints (read-only unless noted):
+
+- GET /:package – npm-style package metadata document with:
+  - name
+  - dist-tags (includes at least latest)
+  - versions (map of version → manifest + dist info)
+  - time (created, modified, per-version timestamps)
+  - description, license, repository, etc.
+- GET /:package/:version – npm-style document for a specific version
+- GET /:package/-/:tarball – tarball download, e.g. /my-pkg/-/my-pkg-1.2.3.tgz
+- PUT /-/package/:name/dist-tags/:tag – set a dist-tag to a specific version (minimal write support)
+
+Notes
+- Dist-tags: On publish, Prism automatically sets/updates the latest tag to the highest version present for the package. Additional tags can be set via the endpoint above.
+- Semver: Range resolution is supported internally and used by client tooling after fetching metadata. A dedicated resolver also exists at /v1/resolve for Prism-native flows.
+- Auth: The compat layer currently allows unauthenticated access. A preHandler hook is in place where token-based auth can be added in the future.
+
+Pointing npm clients at Prism
+
+You can point npm/pnpm/Yarn/Bun to Prism by setting the registry to your Prism backend base URL (the npm-compat router is mounted at the root):
+
+Example .npmrc
+```
+registry=http://localhost:4000/
+```
+
+CLI examples
+```
+npm config set registry http://localhost:4000/
+pnpm config set registry http://localhost:4000/
+yarn config set registry http://localhost:4000/
+```
+
+Limitations (current)
+- Advanced auth features (tokens, scoped permissions) not implemented.
+- Organization scopes beyond naming are not specially handled.
+- Partial npm protocol coverage: enough for install flows that rely on metadata, versions, tarballs, and dist-tags.

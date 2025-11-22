@@ -15,6 +15,8 @@ import {
   tarballPath,
 } from '../storage/storageLayout'
 import { sortVersionsAsc } from '../utils/semver'
+import path from 'node:path'
+import { distTagsPath } from '../storage'
 
 export class PackageRepository {
   async saveVersion(metadata: VersionMetadata, tarball: Buffer) {
@@ -83,6 +85,24 @@ export class PackageRepository {
       }
       throw error
     }
+  }
+
+  // Dist-tags
+  async getDistTags(name: string): Promise<Record<string, string>> {
+    const payload = await readJson<Record<string, string>>(distTagsPath(name))
+    return payload ?? {}
+  }
+
+  async setDistTag(
+    name: string,
+    tag: string,
+    version: string,
+  ): Promise<Record<string, string>> {
+    await ensureDir(storagePaths.tagsRoot)
+    const current = await this.getDistTags(name)
+    current[tag] = version
+    await writeJson(distTagsPath(name), current)
+    return current
   }
 }
 

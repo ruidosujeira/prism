@@ -10,6 +10,7 @@ import {
   toPosixPath,
   normalizePackageName,
 } from '@prism/shared'
+import { normalizeExportPath } from '@prism/shared'
 import type { PrismManifest } from '@prism/core'
 import {
   analyzeExports,
@@ -68,10 +69,7 @@ const normalizeRepository = (repository: PackageManifest['repository']) => {
   return repository
 }
 
-const normalizeExportPath = (value: string) =>
-  toPosixPath(value)
-    .replace(/^((\.\/)+)/, '')
-    .replace(/^package\//, '')
+// use centralized export path normalizer from @prism/shared
 
 const buildExportsRecord = (
   manifest: PackageManifest,
@@ -229,6 +227,17 @@ export const runPublishPipeline = async (
   await packageRepository.saveVersion(metadata, tarballBuffer)
   await getPrismStorage().putManifest(prismManifest)
   await searchIndexService.upsert(metadata)
+
+  // Update dist-tags: set/update "latest" to max version
+  try {
+    const allVersions = await packageRepository.listVersions(identifier.name)
+    const latest = allVersions[allVersions.length - 1]
+    if (latest) {
+      await packageRepository.setDistTag(identifier.name, 'latest', latest)
+    }
+  } catch {
+    // non-fatal; tag update should not break publish
+  }
 
   return PublishResponseSchema.parse({
     identifier: metadata.identifier,

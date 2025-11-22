@@ -102,3 +102,6 @@ prism/
 - [docs/registry-model.md](./docs/registry-model.md) — canonical metadata schema.
 - [docs/provenance.md](./docs/provenance.md) — analyzer + provenance model.
 - [docs/roadmap.md](./docs/roadmap.md) — sequencing for auth, observability, and scaling milestones.
+- [docs/architecture-map.txt](./docs/architecture-map.txt) — concise textual architecture map.
+- [docs/dependency-graph.md](./docs/dependency-graph.md) — workspace package dependency graph.
+- [docs/final-audit-report.md](./docs/final-audit-report.md) — final audit, PR plan, checklist, and stability notes.

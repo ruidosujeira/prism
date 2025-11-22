@@ -1,0 +1,37 @@
+Prism Architecture Map (textual)
+
+Primary components
+- @prism/shared: canonical schemas (Zod), identifier/types, metadata, search models; light utils.
+- @prism/core: domain model (Prism manifest), resolver, PrismStorage abstraction, in-memory storage.
+- prism-registry-backend: Fastify service; routes: /v1/packages, /v1/resolve; ingest+analyzers; storage factory; storage layout.
+- @prism/storage-s3: S3-backed PrismStorage implementation (production-grade durability).
+- @prism/cli: publish/info/resolve commands (developer entrypoint).
+- prism-registry-web: Next.js explorer (public browsing); consumes backend APIs.
+- apps/dashboard: Vite/React operator console (internal-facing); consumes backend APIs.
+
+Data flow (publish)
+CLI -> Backend POST /v1/packages/:name (tarball + metadata)
+  -> Ingest pipeline (rehydrate package.json, hash tarball)
+  -> Analyzers (exports/types/runtime, file tree, diff, provenance)
+  -> PrismStorage (metadata + manifest) + filesystem tarball storage
+  -> Search/Index snapshot update
+  -> 200 response: stored manifest + analyzer summaries + artifact URLs
+
+Data flow (resolve)
+Client -> Backend GET /v1/resolve?spec=<name@range>&runtime=<node|deno|bun>
+  -> Resolver (@prism/core) fetches manifests via PrismStorage
+  -> Semver selection + runtime-aware export resolution
+  -> URL rewriting using configured base URL
+  -> 200 response: entry URL(s), types URL, integrity, provenance
+
+Storage layout (filesystem)
+- STORAGE_ROOT
+  - packages/<name>/<version>/manifest.json (canonical metadata)
+  - packages/<name>/<version>/files.json (file tree)
+  - tarballs/<name>/<version>.tgz
+  - indexes/search/<prefix>.json (search snapshots)
+
+Operational notes
+- Stateless API nodes; storage driver is the shared dependency.
+- Logger configured via env; tests disable noisy logs.
+- Observability hooks ready; OpenTelemetry pending.
